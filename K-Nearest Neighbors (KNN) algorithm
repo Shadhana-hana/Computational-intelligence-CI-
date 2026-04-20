@@ -1,0 +1,206 @@
+import pandas as pd
+import numpy as np
+from collections import Counter, defaultdict
+from tabulate import tabulate
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+
+# ---------------- DISTANCE FUNCTIONS ----------------
+
+def euclidean(a, b):
+    return np.sqrt(np.sum((a - b) ** 2))
+
+def manhattan(a, b):
+    return np.sum(np.abs(a - b))
+
+def chebyshev(a, b):
+    return np.max(np.abs(a - b))
+
+# ---------------- COMPUTE k (10% RULE) ----------------
+
+def compute_k(n):
+    k = int(0.10 * n)
+    if k < 1:
+        k = 1
+    if k % 2 == 0:  # make k odd
+        k += 1
+    return k
+
+# ---------------- BASIC METRICS ----------------
+
+def get_basic_metrics(y_true, y_pred):
+    metrics = [
+        ["Accuracy", accuracy_score(y_true, y_pred)],
+        ["Precision", precision_score(y_true, y_pred, average='macro', zero_division=0)],
+        ["Recall", recall_score(y_true, y_pred, average='macro', zero_division=0)],
+        ["F1-Score", f1_score(y_true, y_pred, average='macro', zero_division=0)]
+    ]
+    return metrics
+
+# ---------------- CONFUSION MATRIX DETAILS ----------------
+
+def get_confusion_details(y_true, y_pred):
+    cm = confusion_matrix(y_true, y_pred)
+
+    print("\nConfusion Matrix:")
+    print(cm)
+
+    if cm.shape == (2, 2):  # Binary classification
+        tn, fp, fn, tp = cm.ravel()
+
+        print("\nClassification Details:")
+        print(f"True Negative (TN): {tn}")
+        print(f"False Positive (FP): {fp}")
+        print(f"False Negative (FN): {fn}")
+        print(f"True Positive (TP): {tp}")
+    else:
+        print("\nTN/FP/FN/TP available only for Binary Classification.")
+
+# ---------------- INPUT FUNCTION ----------------
+
+def getting_input():
+    print("\n--- Input Method ---")
+    print("1. Manual Input")
+    print("2. CSV File Input")
+
+    ch = int(input("Enter choice: "))
+
+    if ch == 1:
+        n_attr = int(input("Enter number of attributes: "))
+        n_obs = int(input("Enter number of observations: "))
+
+        X, y = [], []
+
+        for i in range(n_obs):
+            values = list(map(float, input(f"Attributes for obs {i+1}: ").split()))
+            label = int(input(f"Label for obs {i+1}: "))
+            X.append(values)
+            y.append(label)
+
+        test_point = np.array(list(map(float, input("Enter test point: ").split())))
+        return np.array(X), np.array(y), test_point, 1
+
+    elif ch == 2:
+        file_path = input("Enter CSV path: ")
+        df = pd.read_csv(file_path)
+
+        print("Columns:", list(df.columns))
+        features = [f.strip() for f in input("Enter feature columns (comma separated): ").split(",")]
+        target = input("Enter target column: ").strip()
+
+        return df[features].values, df[target].values, None, 2
+
+# ---------------- MANUAL KNN ----------------
+
+def manual_knn_predict(X, y, test_point):
+
+    print("\n--- Distance Metric ---")
+    print("1. Euclidean")
+    print("2. Manhattan")
+    print("3. Chebyshev")
+
+    metric_choice = int(input("Choose distance metric: "))
+
+    if metric_choice == 1:
+        dist_func = euclidean
+        metric_name = "Euclidean"
+    elif metric_choice == 2:
+        dist_func = manhattan
+        metric_name = "Manhattan"
+    else:
+        dist_func = chebyshev
+        metric_name = "Chebyshev"
+
+    k = int(input("Enter k value: "))
+
+    print("\n--- KNN Type ---")
+    print("1. Unweighted")
+    print("2. Weighted")
+
+    knn_type = int(input("Choose option: "))
+
+    distances = []
+
+    for i in range(len(X)):
+        d = dist_func(X[i], test_point)
+        distances.append((d, y[i]))
+
+    distances.sort(key=lambda x: x[0])
+    neighbors = distances[:k]
+
+    print("\nNearest Neighbors:")
+    for d, label in neighbors:
+        print(f"Distance = {d:.4f}, Label = {label}")
+
+    # Prediction
+    if knn_type == 1:
+        labels = [label for _, label in neighbors]
+        prediction = Counter(labels).most_common(1)[0][0]
+        print("\nUsing UNWEIGHTED Voting")
+    else:
+        weight_sum = defaultdict(float)
+        for d, label in neighbors:
+            weight = 1 / (d + 1e-9)
+            weight_sum[label] += weight
+
+        prediction = max(weight_sum, key=weight_sum.get)
+        print("\nUsing WEIGHTED Voting")
+
+    print("\n===================================")
+    print(f"Predicted Label: {prediction}")
+    print(f"Metric Used: {metric_name}")
+    print(f"k Value: {k}")
+    print("===================================")
+
+# ===================== MAIN PROGRAM =====================
+
+X, y, test_point, mode = getting_input()
+
+# -------- MANUAL MODE --------
+if mode == 1:
+    manual_knn_predict(X, y, test_point)
+
+# -------- CSV MODE --------
+elif mode == 2:
+
+    total_records = len(X)
+    print(f"\nTotal records in dataset: {total_records}")
+
+    train_percent = int(input("Enter training percentage: "))
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y,
+        test_size=(1 - train_percent / 100),
+        random_state=1,
+        stratify=y
+    )
+
+    # ---- Calculate k ----
+    k = compute_k(len(X_train))
+
+    print("\n========== DATASET SUMMARY ==========")
+    print(f"Total Records        : {total_records}")
+    print(f"Training Records     : {len(X_train)}")
+    print(f"Testing Records      : {len(X_test)}")
+    print(f"k Value (10% Rule)   : {k}")
+    print("====================================")
+
+    # ---- Train Model ----
+    model = KNeighborsClassifier(n_neighbors=k)
+    model.fit(X_train, y_train)
+
+    preds = model.predict(X_test)
+
+    # ---- Metrics ----
+    performance_list = get_basic_metrics(y_test, preds)
+
+    print("\nKNN PERFORMANCE METRICS")
+    print(tabulate(performance_list,
+                   headers=["Metric", "Value"],
+                   tablefmt="fancy_grid",
+                   floatfmt=".4f"))
+
+    # ---- Confusion Matrix ----
+    get_confusion_details(y_test, preds)
+
